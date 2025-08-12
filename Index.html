@@ -1,0 +1,1075 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Finanzas Jaderson y Valentina — Avanzado</title>
+
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- React / ReactDOM -->
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+
+  <!-- Babel -->
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+  <!-- jsPDF for PDF generation -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
+  <style>
+    :root{
+      --p1:#5b21b6; --p2:#8b5cf6; --accent:#c4b5fd;
+      --bg-dark:#040216;
+    }
+    body{ background: linear-gradient(180deg,#040216 0%, #070417 100%); }
+    .glass{ backdrop-filter: blur(6px) saturate(120%); background: rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.04); }
+    .card-appear{ animation: pop 420ms cubic-bezier(.2,.9,.3,1); }
+    @keyframes pop{ from{opacity:0;transform:translateY(6px) scale(.995)} to{opacity:1;transform:translateY(0) scale(1)} }
+    .welcome-bg{ background: linear-gradient(135deg, rgba(139,92,246,0.95) 0%, rgba(91,33,182,0.95) 60%); }
+    .table-scroll{ overflow-x:auto; }
+  </style>
+</head>
+<body class="text-gray-100 min-h-screen">
+  <div id="root" class="p-6"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useRef } = React;
+    const { jsPDF } = window.jspdf;
+
+    // ----------------- Helpers -----------------
+    const uid = () => Date.now() + Math.floor(Math.random()*1000);
+    const formatCurrency = (n) => new Intl.NumberFormat('es-CO',{style:'currency',currency:'COP',minimumFractionDigits:0}).format(n||0);
+    const clamp = (v,min,max) => Math.max(min,Math.min(max,v));
+
+    // ----------------- Storage keys -----------------
+    const K = {
+      PROFILE:'fin_profile_v3',
+      STARTED:'fin_started_v3',
+      MY_INCOMES:'fin_my_incomes_v3',
+      VAL_INCOMES:'fin_val_incomes_v3',
+      FIXED_EXP:'fin_fixed_exp_v3',
+      UNEXP_EXP:'fin_unexp_exp_v3',
+      DEBTS:'fin_debts_v3',
+      ABONOS:'fin_abonos_v3',
+      SAVINGS:'fin_savings_v3',
+      REMINDER_SETTINGS:'fin_reminder_settings_v3'
+    };
+
+    // ----------------- App -----------------
+    function App(){
+      const monthNames = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+
+      // start
+      const [started, setStarted] = useState(()=> {
+        try { return JSON.parse(localStorage.getItem(K.STARTED)) || false; } catch { return false; }
+      });
+
+      // profile
+      const [profileImage, setProfileImage] = useState(()=> localStorage.getItem(K.PROFILE) || null);
+
+      // period
+      const [currentMonth, setCurrentMonth] = useState(new Date().getMonth());
+      const [currentYear, setCurrentYear] = useState(new Date().getFullYear());
+      const [currentPeriod, setCurrentPeriod] = useState(1);
+
+      // data (with sensible defaults)
+      const [myIncomes, setMyIncomes] = useState(()=> {
+        try { const v = JSON.parse(localStorage.getItem(K.MY_INCOMES)); if (Array.isArray(v)) return v; } catch {}
+        return [{ id:uid(), source:'Salario Jaderson', amount:1200000, period:1, type:'fijo', isActive:true }];
+      });
+      const [valIncomes, setValIncomes] = useState(()=> {
+        try { const v = JSON.parse(localStorage.getItem(K.VAL_INCOMES)); if (Array.isArray(v)) return v; } catch {}
+        return [{ id:uid(), source:'Salario Valentina', amount:600000, period:1, type:'fijo', isActive:true }];
+      });
+      const [fixedExpenses, setFixedExpenses] = useState(()=> {
+        try { const v = JSON.parse(localStorage.getItem(K.FIXED_EXP)); if (Array.isArray(v)) return v; } catch {}
+        return [{ id:uid(), name:'Arriendo', amount:800000, period:1, category:'Vivienda' }];
+      });
+      const [unexpectedExpenses, setUnexpectedExpenses] = useState(()=> {
+        try { const v = JSON.parse(localStorage.getItem(K.UNEXP_EXP)); if (Array.isArray(v)) return v; } catch {}
+        return [{ id:uid(), name:'Reparación lavadora', amount:150000, period:1, month:currentMonth, year:currentYear, category:'Emergencia' }];
+      });
+
+      // debts: includes tipo (personal,banco,tarjeta), tasaAnual, tasaMensual, cuotas (numero total), cuotasPagadas
+      const [debts, setDebts] = useState(()=> {
+        try { const v = JSON.parse(localStorage.getItem(K.DEBTS)); if (Array.isArray(v)) return v; } catch {}
+        return [
+          { id:uid(), debtor:'María García', type:'personal', montoTotal:500000, montoPendiente:500000, period:1, month:currentMonth, year:currentYear, dueDate:'2025-08-15', tasaAnual:null, tasaMensual:null, cuotas:null, cuotasPagadas:0, paid:false, history:[] },
+          { id:uid(), debtor:'Crédito Bancario', type:'banco', montoTotal:3000000, montoPendiente:3000000, period:1, month:currentMonth, year:currentYear, dueDate:'2026-01-01', tasaAnual:24, tasaMensual:null, cuotas:24, cuotasPagadas:0, paid:false, history:[] },
+          { id:uid(), debtor:'Tarjeta VISA', type:'tarjeta', montoTotal:800000, montoPendiente:800000, period:1, month:currentMonth, year:currentYear, dueDate:null, tasaAnual:36, tasaMensual:null, cuotas:null, cuotasPagadas:0, paid:false, history:[] }
+        ];
+      });
+
+      const [abonosLog, setAbonosLog] = useState(()=> {
+        try { const v = JSON.parse(localStorage.getItem(K.ABONOS)); if (Array.isArray(v)) return v; } catch {}
+        return [];
+      });
+
+      // savings: monthly records { id, month, year, amount, note }
+      const [savings, setSavings] = useState(()=> {
+        try { const v = JSON.parse(localStorage.getItem(K.SAVINGS)); if (Array.isArray(v)) return v; } catch {}
+        return [{ id:uid(), month:currentMonth, year:currentYear, amount:100000, note:'Ahorro mensual' }];
+      });
+
+      // reminder settings
+      const [reminderSettings, setReminderSettings] = useState(()=> {
+        try { const v = JSON.parse(localStorage.getItem(K.REMINDER_SETTINGS)); if (v) return v; } catch {}
+        return { daysBefore:2, enabled:true };
+      });
+
+      // UI state
+      const [activeTab, setActiveTab] = useState('dashboard');
+      const [showModal, setShowModal] = useState(false);
+      const [modalMode, setModalMode] = useState('');
+      const [modalEntity, setModalEntity] = useState('');
+      const [editingItem, setEditingItem] = useState(null);
+
+      const [showAbonoModal, setShowAbonoModal] = useState(false);
+      const [abonoTarget, setAbonoTarget] = useState(null);
+
+      const [showSimulator, setShowSimulator] = useState(false);
+      const [simTarget, setSimTarget] = useState(null);
+
+      // search / filters / pagination
+      const [searchText, setSearchText] = useState('');
+      const [filterMonth, setFilterMonth] = useState('all');
+      const [filterType, setFilterType] = useState('all');
+      const [pageSize, setPageSize] = useState(5);
+      const [pageIndex, setPageIndex] = useState(0);
+
+      // charts refs
+      const doughRef = useRef(), barRef = useRef(), lineRef = useRef(), simRef = useRef();
+      const doughChart = useRef(null), barChart = useRef(null), lineChart = useRef(null), simChart = useRef(null);
+
+      // persist to localStorage when changes
+      useEffect(()=> localStorage.setItem(K.MY_INCOMES, JSON.stringify(myIncomes)), [myIncomes]);
+      useEffect(()=> localStorage.setItem(K.VAL_INCOMES, JSON.stringify(valIncomes)), [valIncomes]);
+      useEffect(()=> localStorage.setItem(K.FIXED_EXP, JSON.stringify(fixedExpenses)), [fixedExpenses]);
+      useEffect(()=> localStorage.setItem(K.UNEXP_EXP, JSON.stringify(unexpectedExpenses)), [unexpectedExpenses]);
+      useEffect(()=> localStorage.setItem(K.DEBTS, JSON.stringify(debts)), [debts]);
+      useEffect(()=> localStorage.setItem(K.ABONOS, JSON.stringify(abonosLog)), [abonosLog]);
+      useEffect(()=> localStorage.setItem(K.SAVINGS, JSON.stringify(savings)), [savings]);
+      useEffect(()=> localStorage.setItem(K.PROFILE, profileImage || ''), [profileImage]);
+      useEffect(()=> localStorage.setItem(K.STARTED, JSON.stringify(started)), [started]);
+      useEffect(()=> localStorage.setItem(K.REMINDER_SETTINGS, JSON.stringify(reminderSettings)), [reminderSettings]);
+
+      // summary calculations
+      const calculateSummary = () => {
+        const totalMyIncome = myIncomes.filter(i=>i.period===currentPeriod && i.isActive).reduce((s,i)=>s+i.amount,0);
+        const totalValIncome = valIncomes.filter(i=>i.period===currentPeriod && i.isActive).reduce((s,i)=>s+i.amount,0);
+        const totalDebtIncome = debts.filter(d=>d.period===currentPeriod && d.month===currentMonth && d.year===currentYear && d.type==='personal' && d.paid).reduce((s,d)=>s + (d.montoTotal||0), 0);
+        const totalFixed = fixedExpenses.filter(e=>e.period===currentPeriod).reduce((s,e)=>s+e.amount,0);
+        const totalUnexp = unexpectedExpenses.filter(e=>e.period===currentPeriod && e.month===currentMonth && e.year===currentYear).reduce((s,e)=>s+e.amount,0);
+        const totalSavings = savings.filter(sv => sv.month === currentMonth && sv.year === currentYear).reduce((s,sv)=>s+sv.amount,0);
+        const totalIncome = totalMyIncome + totalValIncome + totalDebtIncome;
+        const totalExpenses = totalFixed + totalUnexp + 0; // note: debts (bank/tarjeta) not counted as expense
+        const balance = totalIncome - totalExpenses - totalSavings;
+        return { totalIncome, totalMyIncome, totalValIncome, totalDebtIncome, totalFixed, totalUnexp, totalExpenses, balance, totalSavings };
+      };
+      const summary = calculateSummary();
+      const abonosThisPeriod = abonosLog.filter(a=>a.month===currentMonth && a.year===currentYear).reduce((s,a)=>s+a.amount,0);
+      const balanceIncludingAbonos = summary.balance - abonosThisPeriod;
+
+      // charts update
+      useEffect(()=>{
+        // dough
+        try {
+          if (doughChart.current) doughChart.current.destroy();
+          const ctx = doughRef.current.getContext('2d');
+          doughChart.current = new Chart(ctx, {
+            type:'doughnut',
+            data:{ labels:['Gastos Fijos','Imprevistos','Ahorro'], datasets:[{ data:[summary.totalFixed||0, summary.totalUnexp||0, summary.totalSavings||0], backgroundColor:['rgba(139,92,246,0.95)','rgba(59,130,246,0.9)','rgba(16,185,129,0.85)'] }]},
+            options:{ maintainAspectRatio:false, plugins:{ legend:{ labels:{ color:'#e6e6fa' } } } }
+          });
+        } catch(e){ console.warn(e); }
+        // bar incomes vs gastos
+        try {
+          if (barChart.current) barChart.current.destroy();
+          const ctx2 = barRef.current.getContext('2d');
+          const incomeQ1 = myIncomes.filter(i=>i.period===1 && i.isActive).reduce((s,i)=>s+i.amount,0) + valIncomes.filter(i=>i.period===1 && i.isActive).reduce((s,i)=>s+i.amount,0);
+          const incomeQ2 = myIncomes.filter(i=>i.period===2 && i.isActive).reduce((s,i)=>s+i.amount,0) + valIncomes.filter(i=>i.period===2 && i.isActive).reduce((s,i)=>s+i.amount,0);
+          const expenseQ1 = fixedExpenses.filter(e=>e.period===1).reduce((s,e)=>s+e.amount,0) + unexpectedExpenses.filter(e=>e.period===1).reduce((s,e)=>s+e.amount,0);
+          const expenseQ2 = fixedExpenses.filter(e=>e.period===2).reduce((s,e)=>s+e.amount,0) + unexpectedExpenses.filter(e=>e.period===2).reduce((s,e)=>s+e.amount,0);
+          barChart.current = new Chart(ctx2, {
+            type:'bar',
+            data:{ labels:['1ª Quincena','2ª Quincena'], datasets:[
+              { label:'Ingresos', data:[incomeQ1,incomeQ2], backgroundColor:'rgba(59,130,246,0.95)' },
+              { label:'Gastos', data:[expenseQ1,expenseQ2], backgroundColor:'rgba(237,137,54,0.95)' },
+              { label:'Ahorro', data:[summary.totalSavings||0,0], backgroundColor:'rgba(16,185,129,0.85)' }
+            ]},
+            options:{ maintainAspectRatio:false, plugins:{ legend:{ labels:{ color:'#e6e6fa' } } }, scales:{ x:{ ticks:{ color:'#e6e6fa' } }, y:{ ticks:{ color:'#e6e6fa' } } } }
+          });
+        } catch(e){ console.warn(e); }
+      }, [summary, myIncomes, valIncomes, fixedExpenses, unexpectedExpenses, savings, currentPeriod, currentMonth, currentYear, debts, abonosLog]);
+
+      // ----------------- Utilities: search/filter/pagination -----------------
+      const applySearchFilter = (items, keys, search, mFilter, typeFilter) => {
+        let res = items;
+        if (search && search.trim()!=='') {
+          const s = search.toLowerCase();
+          res = res.filter(it => keys.some(k=> (''+(it[k]||'')).toLowerCase().includes(s)));
+        }
+        if (mFilter !== 'all') res = res.filter(it => (it.month ?? currentMonth) === parseInt(mFilter));
+        if (typeFilter && typeFilter !== 'all') res = res.filter(it => (it.type || '').toLowerCase() === typeFilter.toLowerCase());
+        return res;
+      };
+      const paginate = (items, pageSize, pageIndex) => {
+        const start = pageIndex*pageSize;
+        return items.slice(start, start+pageSize);
+      };
+
+      // ----------------- CRUD & Modals -----------------
+      const openAddModal = (entity) => { setModalMode('add'); setModalEntity(entity); setEditingItem(null); setShowModal(true); };
+      const openEditModal = (entity, item) => { setModalMode('edit'); setModalEntity(entity); setEditingItem(item); setShowModal(true); };
+
+      const deleteItem = (entity, id) => {
+        if (entity==='income-my') setMyIncomes(prev=>prev.filter(x=>x.id!==id));
+        if (entity==='income-val') setValIncomes(prev=>prev.filter(x=>x.id!==id));
+        if (entity==='expense-fixed') setFixedExpenses(prev=>prev.filter(x=>x.id!==id));
+        if (entity==='expense-unexpected') setUnexpectedExpenses(prev=>prev.filter(x=>x.id!==id));
+        if (entity==='debt') { setDebts(prev=>prev.filter(x=>x.id!==id)); setAbonosLog(prev=>prev.filter(a=>a.debtId!==id)); }
+        if (entity==='saving') setSavings(prev=>prev.filter(x=>x.id!==id));
+      };
+
+      const saveFromModal = (data) => {
+        try {
+          if (modalMode === 'add') {
+            if (modalEntity === 'income-my') setMyIncomes(prev=>[...prev,{...data,id:uid()}]);
+            if (modalEntity === 'income-val') setValIncomes(prev=>[...prev,{...data,id:uid()}]);
+            if (modalEntity === 'expense-fixed') setFixedExpenses(prev=>[...prev,{...data,id:uid()}]);
+            if (modalEntity === 'expense-unexpected') setUnexpectedExpenses(prev=>[...prev,{...data,id:uid(), month:currentMonth, year:currentYear}]);
+            if (modalEntity === 'debt') {
+              const monto = parseFloat(data.montoTotal||data.amount||0);
+              setDebts(prev=>[...prev,{...data,id:uid(), montoTotal:monto, montoPendiente:monto, paid:monto<=0, history:[], cuotas: data.cuotas ? parseInt(data.cuotas) : null, cuotasPagadas:0}]);
+            }
+            if (modalEntity === 'saving') setSavings(prev=>[...prev,{...data,id:uid()}]);
+          } else if (modalMode === 'edit' && editingItem) {
+            if (modalEntity === 'income-my') setMyIncomes(prev=>prev.map(i=>i.id===editingItem.id?{...i,...data}:i));
+            if (modalEntity === 'income-val') setValIncomes(prev=>prev.map(i=>i.id===editingItem.id?{...i,...data}:i));
+            if (modalEntity === 'expense-fixed') setFixedExpenses(prev=>prev.map(e=>e.id===editingItem.id?{...e,...data}:e));
+            if (modalEntity === 'expense-unexpected') setUnexpectedExpenses(prev=>prev.map(e=>e.id===editingItem.id?{...e,...data}:e));
+            if (modalEntity === 'debt') setDebts(prev=>prev.map(d=>d.id===editingItem.id?{...d,...data, montoTotal: parseFloat(data.montoTotal||data.amount||d.montoTotal), montoPendiente: Math.min(d.montoPendiente||d.montoTotal, parseFloat(data.montoTotal||data.amount||d.montoTotal || d.montoPendiente)) }:d));
+            if (modalEntity === 'saving') setSavings(prev=>prev.map(sv=>sv.id===editingItem.id?{...sv,...data}:sv));
+          }
+        } catch(e){ console.error('saveFromModal', e); }
+        setShowModal(false); setEditingItem(null); setModalEntity(''); setModalMode('');
+      };
+
+      // ----------------- Abono logic (interest calc) -----------------
+      // compute preview of abono for debt + amount
+      const computeAbonoPreview = (debt, amount) => {
+        try {
+          const monto = parseFloat(amount || 0);
+          if (!debt) return null;
+          const saldo = parseFloat(debt.montoPendiente || debt.montoTotal || 0);
+          // determine monthly rate
+          let tasaMes = null;
+          if (debt.tasaMensual && !isNaN(debt.tasaMensual)) tasaMes = parseFloat(debt.tasaMensual);
+          else if (debt.tasaAnual && !isNaN(debt.tasaAnual)) tasaMes = parseFloat(debt.tasaAnual) / 12;
+          else tasaMes = 0;
+          const interes = +(saldo * (tasaMes/100));
+          if (debt.type === 'personal') {
+            return { valid: monto > 0, interes:0, capital:monto, newSaldo: Math.max(0, saldo - monto), tasaMensual: tasaMes };
+          }
+          if (monto <= interes) return { valid:false, reason:'Abono insuficiente: monto debe ser mayor que el interés del mes', interes, capital:0, newSaldo: saldo, tasaMensual:tasaMes };
+          const capital = monto - interes;
+          const newSaldo = Math.max(0, saldo - capital);
+          const cuotasPagadas = debt.cuotas ? debt.cuotasPagadas + 1 : debt.cuotasPagadas;
+          return { valid:true, interes:+interes.toFixed(0), capital:+capital.toFixed(0), newSaldo:+newSaldo.toFixed(0), tasaMensual:tasaMes, cuotasPagadas };
+        } catch(e){ console.error('computeAbonoPreview', e); return null; }
+      };
+
+      // apply abono
+      const applyAbono = (debtId, amount) => {
+        const debt = debts.find(d=>d.id===debtId);
+        if (!debt) { alert('Deuda no encontrada'); return; }
+        const preview = computeAbonoPreview(debt, amount);
+        if (!preview) { alert('No se pudo calcular abono'); return; }
+        if (!preview.valid) { alert(preview.reason || 'Abono inválido'); return; }
+        // create entry
+        const before = debt.montoPendiente;
+        const now = new Date();
+        const entry = { id: uid(), debtId, date: now.toISOString(), amount:+parseFloat(amount), interes:preview.interes, capital:preview.capital, before, after:preview.newSaldo, month: now.getMonth(), year: now.getFullYear() };
+        // update debt
+        setDebts(prev => prev.map(d => d.id===debtId ? { ...d, montoPendiente: preview.newSaldo, paid: preview.newSaldo <= 0, history: [...(d.history||[]), entry], cuotasPagadas: preview.cuotasPagadas || d.cuotasPagadas } : d));
+        // log abono
+        setAbonosLog(prev => [...prev, entry]);
+        setShowAbonoModal(false); setAbonoTarget(null);
+        // schedule notifications again
+        scheduleAllReminders();
+      };
+
+      // ----------------- Profile image upload -----------------
+      const handleProfileUpload = (file) => {
+        if (!file) return;
+        if (!file.type.startsWith('image/')) { alert('Selecciona una imagen válida'); return; }
+        const reader = new FileReader();
+        reader.onload = (e) => setProfileImage(e.target.result);
+        reader.readAsDataURL(file);
+      };
+
+      // ----------------- Debt progress color -----------------
+      const progressColor = (debt) => {
+        const pct = (debt.montoPendiente / Math.max(1, debt.montoTotal)) * 100;
+        if (pct <= 30) return 'bg-emerald-400';
+        if (pct <= 70) return 'bg-yellow-400';
+        return 'bg-red-400';
+      };
+
+      // ----------------- Notifications / reminders -----------------
+      const askNotificationPermission = async () => {
+        if (!('Notification' in window)) return false;
+        if (Notification.permission === 'granted') return true;
+        if (Notification.permission !== 'denied') {
+          const perm = await Notification.requestPermission();
+          return perm === 'granted';
+        }
+        return false;
+      };
+
+      // schedule reminders for pending debts with dueDate
+      const scheduleAllReminders = async () => {
+        if (!reminderSettings.enabled) return;
+        const have = await askNotificationPermission();
+        if (!have) return;
+        // Clear existing timeouts? We'll keep simple: check every minute and notify when within threshold and not yet notified in this session
+        // Implement "notifiedThisSession" map
+        window._notifiedMap = window._notifiedMap || {};
+        debts.forEach(d => {
+          if (!d.dueDate) return;
+          const due = new Date(d.dueDate);
+          const notifyBeforeDays = reminderSettings.daysBefore || 2;
+          const notifyAt = new Date(due.getFullYear(), due.getMonth(), due.getDate() - notifyBeforeDays, 9, 0, 0); // 9:00am day -daysBefore
+          const key = d.id + '_' + notifyAt.toDateString();
+          if (new Date() >= notifyAt && !window._notifiedMap[key]) {
+            // show notification
+            new Notification(`Vencimiento: ${d.debtor}`, { body:`La deuda vence el ${due.toLocaleDateString()}. Verifica el pago.`, icon: '' });
+            window._notifiedMap[key] = true;
+          }
+        });
+      };
+
+      // check reminders every 60 seconds (while app open)
+      useEffect(()=>{
+        scheduleAllReminders();
+        const t = setInterval(()=> scheduleAllReminders(), 60*1000);
+        return ()=> clearInterval(t);
+      }, [debts, reminderSettings]);
+
+      // ----------------- PDF Report generation (monthly) -----------------
+      const generatePDFReport = (month = currentMonth, year = currentYear) => {
+        const doc = new jsPDF({ format:'a4' });
+        doc.setFontSize(16);
+        doc.text(`Reporte financiero - ${monthNames[month]} ${year}`, 14, 20);
+        doc.setFontSize(11);
+        doc.text(`Generado: ${new Date().toLocaleString()}`, 14, 28);
+
+        // incomes
+        const incomesM = [...myIncomes.filter(i=>i.period===currentPeriod && i.isActive), ...valIncomes.filter(i=>i.period===currentPeriod && i.isActive)];
+        doc.text('Ingresos:', 14, 40);
+        let y = 46;
+        incomesM.forEach(i=>{ doc.text(`- ${i.source}: ${formatCurrency(i.amount)}`, 16, y); y += 6; });
+
+        // gastos
+        y += 2;
+        doc.text('Gastos fijos:', 14, y); y+=6;
+        fixedExpenses.filter(e=>e.period===currentPeriod).forEach(e=>{ doc.text(`- ${e.name}: ${formatCurrency(e.amount)}`, 16, y); y+=6; });
+        y += 2;
+        doc.text('Imprevistos (mes):', 14, y); y+=6;
+        unexpectedExpenses.filter(e=>e.month===month && e.year===year).forEach(e=>{ doc.text(`- ${e.name}: ${formatCurrency(e.amount)}`, 16, y); y+=6; });
+
+        y += 4;
+        doc.text(`Ahorro (${monthNames[month]}): ${formatCurrency(savings.filter(s=>s.month===month && s.year===year).reduce((s1,sv)=>s1+sv.amount,0))}`, 14, y);
+        y += 8;
+        doc.text('Deudas y abonos (mes):', 14, y); y+=6;
+        debts.filter(d=> (d.month===month && d.year===year) || (d.history && d.history.some(h=> new Date(h.date).getMonth()===month && new Date(h.date).getFullYear()===year))).forEach(d=>{
+          doc.text(`- ${d.debtor} (${d.type}): Pendiente ${formatCurrency(d.montoPendiente)} / Total ${formatCurrency(d.montoTotal)}`, 16, y); y+=6;
+          const hist = (d.history||[]).filter(h=> new Date(h.date).getMonth()===month && new Date(h.date).getFullYear()===year);
+          hist.forEach(h=>{
+            doc.text(`   * Abono ${formatCurrency(h.amount)} (${new Date(h.date).toLocaleDateString()}) Interés ${formatCurrency(h.interes)} Capital ${formatCurrency(h.capital)}`, 18, y); y+=6;
+          });
+          y+=2;
+          if (y > 260) { doc.addPage(); y = 20; }
+        });
+
+        doc.save(`reporte_${month+1}_${year}.pdf`);
+      };
+
+      // ----------------- Simulator (proyección) -----------------
+      // Given debt and monthly payment, simulate months until paid, return { months, totalInterest, timeline[] }
+      const simulateDebt = (debt, monthlyPayment) => {
+        const timeline = [];
+        let saldo = debt.montoPendiente;
+        let months = 0;
+        let totalInterest = 0;
+        // monthly rate
+        let tasaMes = null;
+        if (debt.tasaMensual && !isNaN(debt.tasaMensual)) tasaMes = parseFloat(debt.tasaMensual);
+        else if (debt.tasaAnual && !isNaN(debt.tasaAnual)) tasaMes = parseFloat(debt.tasaAnual)/12;
+        else tasaMes = 0;
+        if (monthlyPayment <= 0) return { months:Infinity, totalInterest:0, timeline:[] };
+        // simulate up to 600 months safe limit
+        for (let i=0;i<600 && saldo>0;i++) {
+          const interest = saldo * (tasaMes/100);
+          if (monthlyPayment <= interest) { // won't reduce principal
+            return { months: Infinity, totalInterest: totalInterest + interest, timeline };
+          }
+          const capital = monthlyPayment - interest;
+          const newSaldo = Math.max(0, saldo - capital);
+          totalInterest += interest;
+          months++;
+          timeline.push({ month: i+1, before: saldo, interest, capital, after: newSaldo });
+          saldo = newSaldo;
+        }
+        return { months, totalInterest, timeline };
+      };
+
+      // ----------------- Line chart for debt history rendered in abono modal -----------------
+      const renderDebtLineChart = (debt) => {
+        try {
+          if (!debt) return;
+          const ctx = lineRef.current.getContext('2d');
+          if (lineChart.current) lineChart.current.destroy();
+          const history = (debt.history || []).slice().sort((a,b)=> new Date(a.date) - new Date(b.date));
+          const labels = ['Inicio'];
+          const data = [debt.montoTotal];
+          history.forEach(h => {
+            const d = new Date(h.date);
+            labels.push(`${d.getDate()}/${d.getMonth()+1}/${d.getFullYear()}`);
+            data.push(h.after);
+          });
+          lineChart.current = new Chart(ctx, { type:'line', data:{ labels, datasets:[{ label:`Saldo ${debt.debtor}`, data, borderColor:'rgba(139,92,246,0.95)', backgroundColor:'rgba(139,92,246,0.15)', tension:0.3 }]}, options:{ maintainAspectRatio:false, plugins:{ legend:{ labels:{ color:'#e6e6fa' } } }, scales:{ x:{ ticks:{ color:'#e6e6fa' } }, y:{ ticks:{ color:'#e6e6fa' } } } } });
+        } catch(e){ console.warn('line chart', e); }
+      };
+
+      useEffect(()=>{ if (abonoTarget) renderDebtLineChart(abonoTarget); }, [abonoTarget, debts]);
+
+      // ----------------- Simulator chart render -----------------
+      const renderSimChart = (timeline, debtorName) => {
+        try {
+          if (simChart.current) simChart.current.destroy();
+          const ctx = simRef.current.getContext('2d');
+          const labels = timeline.map(t=>`M${t.month}`);
+          const data = timeline.map(t => t.after);
+          simChart.current = new Chart(ctx, { type:'line', data:{ labels, datasets:[
+            { label:`Proyección saldo ${debtorName}`, data, borderColor:'rgba(59,130,246,0.95)', backgroundColor:'rgba(59,130,246,0.12)', tension:0.3 }
+          ]}, options:{ maintainAspectRatio:false, plugins:{ legend:{ labels:{ color:'#e6e6fa' } } }, scales:{ x:{ ticks:{ color:'#e6e6fa' } }, y:{ ticks:{ color:'#e6e6fa' } } } } });
+        } catch(e){ console.warn('sim chart', e); }
+      };
+
+      // ----------------- Notifications quick helper -----------------
+      const notify = async (title, body) => {
+        if (!('Notification' in window)) { alert(title + '\n' + body); return; }
+        if (Notification.permission === 'granted') new Notification(title, { body });
+        else if (Notification.permission !== 'denied') {
+          const perm = await Notification.requestPermission();
+          if (perm === 'granted') new Notification(title, { body });
+          else alert(title + '\n' + body);
+        } else alert(title + '\n' + body);
+      };
+
+      // ----------------- UI Components -----------------
+      function Welcome() {
+        return (
+          <div className="min-h-screen flex items-center justify-center welcome-bg p-6">
+            <div className="max-w-3xl bg-white/5 border border-white/10 rounded-3xl p-10 text-center">
+              <h1 className="text-4xl font-bold mb-3">Finanzas Jaderson y Valentina</h1>
+              <p className="text-gray-200 mb-6">Administra ingresos, gastos, deudas (bancos y tarjetas), ahorros y proyecciones. Los datos se guardan en tu navegador.</p>
+              <div className="flex justify-center gap-4">
+                <button onClick={()=>setStarted(true)} className="px-6 py-3 bg-gradient-to-r from-[#7c3aed] to-[#5b21b6] rounded-full text-white font-medium">Comenzar</button>
+                <button onClick={()=>alert('En la app puedes crear registros, simular escenarios, programar recordatorios y generar reportes PDF.')} className="px-6 py-3 bg-transparent border border-white/20 rounded-full">Más info</button>
+              </div>
+            </div>
+          </div>
+        );
+      }
+
+      function Header(){
+        return (
+          <header className="mb-6 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+            <div className="flex items-center gap-4">
+              { profileImage ? <img src={profileImage} alt="perfil" className="w-12 h-12 rounded-full object-cover border-2 border-[#7c3aed]" /> : <div className="w-12 h-12 rounded-full bg-gradient-to-br from-[#7c3aed] to-[#5b21b6] flex items-center justify-center text-white font-bold shadow-lg">JV</div> }
+              <div>
+                <h1 className="text-xl font-bold">Finanzas Jaderson y Valentina</h1>
+                <p className="text-sm text-gray-300">Quincenal · Balance, deudas, ahorros y simulador</p>
+              </div>
+            </div>
+
+            <nav className="flex gap-3">
+              <button onClick={()=>{ setActiveTab('dashboard'); setPageIndex(0); }} className={`px-4 py-2 rounded-lg ${activeTab==='dashboard' ? 'bg-gradient-to-r from-[#7c3aed] to-[#5b21b6]' : 'bg-[#0b1221]'}`}>Dashboard</button>
+              <button onClick={()=>{ setActiveTab('incomes'); setPageIndex(0); }} className={`px-4 py-2 rounded-lg ${activeTab==='incomes' ? 'bg-gradient-to-r from-[#7c3aed] to-[#5b21b6]' : 'bg-[#0b1221]'}`}>Ingresos</button>
+              <button onClick={()=>{ setActiveTab('expenses'); setPageIndex(0); }} className={`px-4 py-2 rounded-lg ${activeTab==='expenses' ? 'bg-gradient-to-r from-[#7c3aed] to-[#5b21b6]' : 'bg-[#0b1221]'}`}>Gastos</button>
+              <button onClick={()=>{ setActiveTab('debts'); setPageIndex(0); }} className={`px-4 py-2 rounded-lg ${activeTab==='debts' ? 'bg-gradient-to-r from-[#7c3aed] to-[#5b21b6]' : 'bg-[#0b1221]'}`}>Deudas</button>
+              <button onClick={()=>{ setActiveTab('savings'); setPageIndex(0); }} className={`px-4 py-2 rounded-lg ${activeTab==='savings' ? 'bg-gradient-to-r from-[#7c3aed] to-[#5b21b6]' : 'bg-[#0b1221]'}`}>Ahorro</button>
+              <button onClick={()=>{ setActiveTab('reports'); setPageIndex(0); }} className={`px-4 py-2 rounded-lg ${activeTab==='reports' ? 'bg-gradient-to-r from-[#7c3aed] to-[#5b21b6]' : 'bg-[#0b1221]'}`}>Reportes</button>
+            </nav>
+          </header>
+        );
+      }
+
+      // Table controls reusable
+      function TableControls(){
+        return (
+          <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-3 mb-3">
+            <div className="flex gap-2 items-center">
+              <input value={searchText} onChange={e=>{ setSearchText(e.target.value); setPageIndex(0); }} placeholder="Buscar..." className="p-2 rounded bg-[#0b1221]" />
+              <select value={filterMonth} onChange={e=>{ setFilterMonth(e.target.value); setPageIndex(0); }} className="p-2 rounded bg-[#0b1221]">
+                <option value="all">Mes: Todos</option>
+                {monthNames.map((m,i)=> <option key={i} value={i}>{m}</option>)}
+              </select>
+              <select value={filterType} onChange={e=>{ setFilterType(e.target.value); setPageIndex(0); }} className="p-2 rounded bg-[#0b1221]">
+                <option value="all">Tipo: Todos</option>
+                <option value="personal">Personal</option>
+                <option value="banco">Banco</option>
+                <option value="tarjeta">Tarjeta</option>
+              </select>
+            </div>
+            <div className="flex gap-2 items-center">
+              <label className="text-sm text-gray-400">Items / página:</label>
+              <select value={pageSize} onChange={e=>{ setPageSize(parseInt(e.target.value)); setPageIndex(0); }} className="p-2 rounded bg-[#0b1221]">
+                <option value={5}>5</option><option value={10}>10</option><option value={20}>20</option>
+              </select>
+            </div>
+          </div>
+        );
+      }
+
+      // Dashboard
+      function DashboardView(){
+        return (
+          <div className="space-y-6">
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              <div className="col-span-2 bg-gradient-to-br from-[#2a1640] to-[#3b1850] p-6 rounded-2xl shadow-xl card-appear">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h2 className="text-2xl font-bold">Resumen quincenal</h2>
+                    <p className="text-sm text-gray-300">{monthNames[currentMonth]} {currentYear} · {currentPeriod===1 ? '1ª Quincena' : '2ª Quincena'}</p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <label className="px-3 py-2 bg-[#0b1221] border border-[#33223f] rounded-lg cursor-pointer">
+                      <input type="file" accept="image/*" onChange={e=>handleProfileUpload(e.target.files[0])} className="hidden"/>
+                      Cambiar foto
+                    </label>
+                    <button onClick={()=>openAddModal('income-my')} className="px-3 py-2 bg-[#7c3aed] rounded-lg">+ Ingreso</button>
+                    <button onClick={()=>openAddModal('expense-fixed')} className="px-3 py-2 bg-[#111827] rounded-lg">+ Gasto</button>
+                  </div>
+                </div>
+
+                <div className="mt-6 grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  <div className="p-4 rounded-xl glass" style={{background:'linear-gradient(135deg,#7c3aed, #60a5fa)'}}>
+                    <p className="text-sm text-white/90">Ingresos</p>
+                    <p className="text-2xl font-bold text-white">{formatCurrency(summary.totalIncome)}</p>
+                    <div className="text-xs text-white/80 mt-2">Jaderson {formatCurrency(summary.totalMyIncome)} · Valentina {formatCurrency(summary.totalValIncome)}</div>
+                  </div>
+
+                  <div className="p-4 rounded-xl glass" style={{background:'linear-gradient(135deg,#fb923c, #f97316)'}}>
+                    <p className="text-sm text-white/90">Gastos</p>
+                    <p className="text-2xl font-bold text-white">{formatCurrency(summary.totalExpenses)}</p>
+                    <div className="text-xs text-white/80 mt-2">Fijos {formatCurrency(summary.totalFixed)} · Imprevistos {formatCurrency(summary.totalUnexp)}</div>
+                  </div>
+
+                  <div className="p-4 rounded-xl glass" style={{background:'linear-gradient(135deg,#10b981, #06b6d4)'}}>
+                    <p className="text-sm text-white/90">Balance (incluye abonos)</p>
+                    <p className="text-2xl font-bold text-white">{formatCurrency(balanceIncludingAbonos)}</p>
+                    <div className="text-xs text-white/80 mt-2">Abonos mes: {formatCurrency(abonosThisPeriod)}</div>
+                  </div>
+                </div>
+
+                <div className="mt-6">
+                  <h4 className="text-sm font-semibold mb-2">Acciones rápidas</h4>
+                  <div className="flex gap-2">
+                    <button onClick={()=>openAddModal('income-my')} className="px-4 py-2 bg-gradient-to-r from-[#7c3aed] to-[#5b21b6] rounded-lg">Agregar Ingreso</button>
+                    <button onClick={()=>openAddModal('expense-fixed')} className="px-4 py-2 bg-[#0b1221] border border-[#33223f] rounded-lg">Agregar Gasto Fijo</button>
+                    <button onClick={()=>openAddModal('expense-unexpected')} className="px-4 py-2 bg-[#0b1221] border border-[#33223f] rounded-lg">Agregar Imprevisto</button>
+                    <button onClick={()=>openAddModal('saving')} className="px-4 py-2 bg-[#f472b6] rounded-lg">Agregar Ahorro</button>
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-4">
+                <div className="bg-[#071026] p-4 rounded-2xl glass h-56">
+                  <h4 className="text-sm font-semibold mb-2">Distribución gastos</h4>
+                  <div className="h-40"><canvas ref={doughRef}></canvas></div>
+                </div>
+                <div className="bg-[#071026] p-4 rounded-2xl glass h-56">
+                  <h4 className="text-sm font-semibold mb-2">Ingresos vs Gastos</h4>
+                  <div className="h-40"><canvas ref={barRef}></canvas></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      }
+
+      // Incomes view
+      function IncomesView(){
+        const combined = [...myIncomes.map(i=>({...i, owner:'Jaderson', entity:'income-my'})), ...valIncomes.map(i=>({...i, owner:'Valentina', entity:'income-val'}))];
+        const filtered = applySearchFilter(combined, ['source','owner'], searchText, filterMonth, 'all');
+        const pages = Math.ceil(filtered.length / pageSize) || 1;
+        const pageItems = paginate(filtered, pageSize, pageIndex);
+        return (
+          <div className="space-y-4">
+            <div className="flex justify-between items-center">
+              <h2 className="text-2xl font-bold">Ingresos</h2>
+              <div className="flex gap-2">
+                <button onClick={()=>openAddModal('income-my')} className="px-3 py-2 bg-gradient-to-r from-[#7c3aed] to-[#5b21b6] rounded-lg">Ingreso Jaderson</button>
+                <button onClick={()=>openAddModal('income-val')} className="px-3 py-2 bg-gradient-to-r from-[#a78bfa] to-[#7c3aed] rounded-lg">Ingreso Valentina</button>
+              </div>
+            </div>
+
+            <div className="bg-[#071026] p-4 rounded-xl glass table-scroll">
+              <table className="w-full text-sm">
+                <thead className="text-left text-gray-300"><tr><th>Fuente</th><th>Owner</th><th>Tipo</th><th>Monto</th><th>Quincena</th><th>Estado</th><th></th></tr></thead>
+                <tbody>
+                  {pageItems.map(i=>(
+                    <tr key={i.id} className="border-b border-[#1f1628]">
+                      <td className="py-2">{i.source}</td>
+                      <td>{i.owner}</td>
+                      <td>{i.type}</td>
+                      <td className="font-semibold">{formatCurrency(i.amount)}</td>
+                      <td>{i.period===1?'1ª':'2ª'}</td>
+                      <td>{i.isActive? 'Activo':'Inactivo'}</td>
+                      <td className="text-right flex gap-2 justify-end">
+                        <button onClick={()=>{ if (i.entity==='income-my') setMyIncomes(prev=>prev.map(x=>x.id===i.id?{...x,isActive:!x.isActive}:x)); else setValIncomes(prev=>prev.map(x=>x.id===i.id?{...x,isActive:!x.isActive}:x)); }} className="px-2 py-1 rounded bg-[#111827]">{i.isActive?'Desactivar':'Activar'}</button>
+                        <button onClick={()=>openEditModal(i.entity, i)} className="px-2 py-1 rounded bg-[#2b0f3b]">Editar</button>
+                        <button onClick={()=>deleteItem(i.entity, i.id)} className="px-2 py-1 rounded bg-[#4c1a1a]">Eliminar</button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <Pagination pages={Math.ceil(filtered.length/pageSize)||1} />
+          </div>
+        );
+      }
+
+      // Expenses view
+      function ExpensesView(){
+        const combined = [...fixedExpenses.map(e=>({...e, entity:'expense-fixed'})), ...unexpectedExpenses.map(e=>({...e, entity:'expense-unexpected'}))];
+        const filtered = applySearchFilter(combined, ['name','category'], searchText, filterMonth, 'all');
+        const pageItems = paginate(filtered, pageSize, pageIndex);
+        return (
+          <div className="space-y-4">
+            <div className="flex justify-between items-center">
+              <h2 className="text-2xl font-bold">Gastos</h2>
+              <div className="flex gap-2">
+                <button onClick={()=>openAddModal('expense-fixed')} className="px-3 py-2 bg-[#7c3aed] rounded-lg">Gasto Fijo</button>
+                <button onClick={()=>openAddModal('expense-unexpected')} className="px-3 py-2 bg-[#a78bfa] rounded-lg">Imprevisto</button>
+              </div>
+            </div>
+
+            <div className="bg-[#071026] p-4 rounded-xl glass table-scroll">
+              <table className="w-full text-sm">
+                <thead className="text-left text-gray-300"><tr><th>Concepto</th><th>Categoría</th><th>Monto</th><th>Quincena</th><th></th></tr></thead>
+                <tbody>
+                  {pageItems.map(e=>(
+                    <tr key={e.id} className="border-b border-[#1f1628]">
+                      <td className="py-2">{e.name}</td>
+                      <td>{e.category}</td>
+                      <td className="font-semibold">{formatCurrency(e.amount)}</td>
+                      <td>{e.period===1?'1ª':'2ª'}</td>
+                      <td className="text-right flex gap-2 justify-end">
+                        <button onClick={()=>openEditModal(e.entity,e)} className="px-2 py-1 rounded bg-[#2b0f3b]">Editar</button>
+                        <button onClick={()=>deleteItem(e.entity,e.id)} className="px-2 py-1 rounded bg-[#4c1a1a]">Eliminar</button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <Pagination pages={Math.ceil(filtered.length/pageSize)||1} />
+          </div>
+        );
+      }
+
+      // Debts view
+      function DebtsView(){
+        const filtered = applySearchFilter(debts, ['debtor'], searchText, filterMonth, filterType);
+        const pageItems = paginate(filtered, pageSize, pageIndex);
+
+        return (
+          <div className="space-y-4">
+            <div className="flex justify-between items-center">
+              <h2 className="text-2xl font-bold">Deudas y Créditos</h2>
+              <div className="flex gap-2">
+                <button onClick={()=>openAddModal('debt')} className="px-4 py-2 bg-gradient-to-r from-[#7c3aed] to-[#5b21b6] rounded-lg">Nueva Deuda / Tarjeta</button>
+                <button onClick={()=>{ setReminderSettings({...reminderSettings, enabled: !reminderSettings.enabled}); notify('Recordatorios', reminderSettings.enabled ? 'Recordatorios desactivados' : 'Recordatorios activados'); }} className="px-3 py-2 bg-[#111827] rounded-lg">{reminderSettings.enabled ? 'Desactivar Record.' : 'Activar Record.'}</button>
+                <button onClick={()=>{ const d = prompt('Días antes para recordar (num)', reminderSettings.daysBefore); if (d) setReminderSettings({...reminderSettings, daysBefore: parseInt(d)}); }} className="px-3 py-2 bg-[#0b1221] rounded-lg">Config. Record.</button>
+              </div>
+            </div>
+
+            <div className="bg-[#071026] p-4 rounded-xl glass table-scroll">
+              <table className="w-full text-sm">
+                <thead className="text-left text-gray-300"><tr><th>Entidad</th><th>Tipo</th><th>Total</th><th>Pendiente</th><th>Interés</th><th>Cuotas</th><th>Vence</th><th></th></tr></thead>
+                <tbody>
+                  {pageItems.map(d=>(
+                    <tr key={d.id} className="border-b border-[#1f1628]">
+                      <td className="py-2">{d.debtor}</td>
+                      <td>{d.type==='banco'?'Banco': d.type==='tarjeta'?'Tarjeta':'Personal'}</td>
+                      <td className="font-semibold">{formatCurrency(d.montoTotal)}</td>
+                      <td>
+                        <div className="flex flex-col">
+                          <div className="text-sm font-semibold">{formatCurrency(d.montoPendiente)}</div>
+                          <div className="w-full h-2 bg-white/10 rounded mt-1 overflow-hidden">
+                            <div className={`${progressColor(d)} h-full`} style={{ width: `${(d.montoPendiente / Math.max(1, d.montoTotal)) * 100}%` }}></div>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="text-sm">{ d.tasaMensual ? `${d.tasaMensual}%/mes` : (d.tasaAnual ? `${(d.tasaAnual/12).toFixed(2)}%/mes (from ${d.tasaAnual}% anual)` : '-') }</td>
+                      <td>{ d.cuotas ? `${d.cuotas} (pagadas ${d.cuotasPagadas||0})` : '-' }</td>
+                      <td>{d.dueDate || '-'}</td>
+                      <td className="text-right flex gap-2 justify-end">
+                        <button onClick={()=>{ setAbonoTarget(d); setShowAbonoModal(true); }} className="px-2 py-1 rounded bg-[#0b1221]">Abonar</button>
+                        <button onClick={()=>{ setSimTarget(d); setShowSimulator(true); }} className="px-2 py-1 rounded bg-[#3b82f6]">Simular</button>
+                        <button onClick={()=>openEditModal('debt', d)} className="px-2 py-1 rounded bg-[#2b0f3b]">Editar</button>
+                        <button onClick={()=>deleteItem('debt', d.id)} className="px-2 py-1 rounded bg-[#4c1a1a]">Eliminar</button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <Pagination pages={Math.ceil(filtered.length/pageSize)||1} />
+          </div>
+        );
+      }
+
+      // Savings view
+      function SavingsView(){
+        const filtered = savings.filter(sv => filterMonth==='all' ? true : sv.month === parseInt(filterMonth));
+        const pageItems = paginate(filtered, pageSize, pageIndex);
+        return (
+          <div className="space-y-4">
+            <div className="flex justify-between items-center">
+              <h2 className="text-2xl font-bold">Ahorros mensuales</h2>
+              <div className="flex gap-2">
+                <button onClick={()=>openAddModal('saving')} className="px-3 py-2 bg-gradient-to-r from-[#f472b6] to-[#fb7185] rounded-lg">Agregar Ahorro</button>
+                <button onClick={()=> {
+                  const totalSaved = savings.reduce((s,sv)=>s+sv.amount,0);
+                  alert(`Ahorro total registrado: ${formatCurrency(totalSaved)}`);
+                }} className="px-3 py-2 bg-[#0b1221] rounded-lg">Total Ahorro</button>
+              </div>
+            </div>
+
+            <div className="bg-[#071026] p-4 rounded-xl glass table-scroll">
+              <table className="w-full text-sm">
+                <thead className="text-left text-gray-300"><tr><th>Mes</th><th>Monto</th><th>Nota</th><th></th></tr></thead>
+                <tbody>
+                  {pageItems.map(sv=>(
+                    <tr key={sv.id} className="border-b border-[#1f1628]">
+                      <td className="py-2">{monthNames[sv.month]} {sv.year}</td>
+                      <td className="font-semibold">{formatCurrency(sv.amount)}</td>
+                      <td>{sv.note || '-'}</td>
+                      <td className="text-right flex gap-2 justify-end">
+                        <button onClick={()=>openEditModal('saving', sv)} className="px-2 py-1 rounded bg-[#2b0f3b]">Editar</button>
+                        <button onClick={()=>deleteItem('saving', sv.id)} className="px-2 py-1 rounded bg-[#4c1a1a]">Eliminar</button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <Pagination pages={Math.ceil(filtered.length/pageSize)||1} />
+          </div>
+        );
+      }
+
+      // Reports view
+      function ReportsView(){
+        return (
+          <div className="space-y-4">
+            <h2 className="text-2xl font-bold">Reportes</h2>
+            <div className="bg-[#071026] p-4 rounded-xl glass">
+              <div className="flex gap-3 items-center">
+                <label className="text-sm">Mes</label>
+                <select value={currentMonth} onChange={e=>setCurrentMonth(parseInt(e.target.value))} className="p-2 rounded bg-[#0b1221]">
+                  {monthNames.map((m,i)=> <option key={i} value={i}>{m}</option>)}
+                </select>
+                <label className="text-sm">Año</label>
+                <select value={currentYear} onChange={e=>setCurrentYear(parseInt(e.target.value))} className="p-2 rounded bg-[#0b1221]">
+                  <option value={2024}>2024</option><option value={2025}>2025</option><option value={2026}>2026</option>
+                </select>
+                <button onClick={()=>generatePDFReport(currentMonth,currentYear)} className="px-4 py-2 bg-gradient-to-r from-[#7c3aed] to-[#5b21b6] rounded-lg">Generar PDF</button>
+              </div>
+            </div>
+          </div>
+        );
+      }
+
+      // Pagination component
+      function Pagination({ pages }){
+        const arr = Array.from({length:pages}, (_,i)=>i);
+        return (
+          <div className="flex items-center justify-between mt-3">
+            <div className="text-sm text-gray-400">Página {pageIndex+1} de {pages}</div>
+            <div className="flex gap-2">
+              <button onClick={()=>setPageIndex(p=>Math.max(0,p-1))} className="px-3 py-1 bg-[#0b1221] rounded">Anterior</button>
+              {arr.map(p=> <button key={p} onClick={()=>setPageIndex(p)} className={`px-3 py-1 rounded ${p===pageIndex ? 'bg-[#7c3aed]' : 'bg-[#111827]'}`}>{p+1}</button>)}
+              <button onClick={()=>setPageIndex(p=>Math.min(p+1,pages-1))} className="px-3 py-1 bg-[#0b1221] rounded">Siguiente</button>
+            </div>
+          </div>
+        );
+      }
+
+      // Modal form for add/edit
+      function ModalForm({ open, mode, entity, item, onSave, onClose }){
+        const [local, setLocal] = useState({});
+        useEffect(()=>{
+          if (!open) return;
+          if (mode==='edit' && item){
+            if (entity==='income-my' || entity==='income-val') setLocal({ source:item.source||'', amount:item.amount||'', period:item.period||1, type:item.type||'fijo', isActive:item.isActive ?? true });
+            if (entity==='expense-fixed' || entity==='expense-unexpected') setLocal({ name:item.name||'', amount:item.amount||'', period:item.period||1, category:item.category||'' });
+            if (entity==='debt') setLocal({ debtor:item.debtor||'', montoTotal:item.montoTotal||item.amount||'', period:item.period||1, dueDate:item.dueDate||'', type:item.type||'personal', tasaAnual:item.tasaAnual||'', tasaMensual:item.tasaMensual||'', cuotas:item.cuotas||'' });
+            if (entity==='saving') setLocal({ month:item.month||currentMonth, year:item.year||currentYear, amount:item.amount||'', note:item.note||'' });
+          } else {
+            if (entity==='income-my' || entity==='income-val') setLocal({ source:'', amount:'', period:1, type:'fijo', isActive:true });
+            if (entity==='expense-fixed' || entity==='expense-unexpected') setLocal({ name:'', amount:'', period:1, category:'' });
+            if (entity==='debt') setLocal({ debtor:'', montoTotal:'', period:1, dueDate:'', type:'personal', tasaAnual:'', tasaMensual:'', cuotas:'' });
+            if (entity==='saving') setLocal({ month:currentMonth, year:currentYear, amount:'', note:'' });
+          }
+        }, [open, mode, entity, item]);
+
+        if (!open) return null;
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+            <div className="w-full max-w-lg bg-gradient-to-br from-[#1f1230] to-[#2a143d] border border-[#2f1a3a] rounded-2xl p-6 glass text-gray-100 shadow-2xl">
+              <h3 className="text-lg font-semibold mb-4">{mode==='add' ? 'Agregar' : 'Editar'} { entity.includes('income') ? 'Ingreso' : entity.includes('expense') ? 'Gasto' : entity==='debt' ? 'Deuda' : 'Ahorro' }</h3>
+              <form onSubmit={(e)=>{ e.preventDefault(); onSave(local); }}>
+                {(entity==='income-my' || entity==='income-val') && <>
+                  <label className="text-xs text-gray-300">Fuente</label>
+                  <input value={local.source} onChange={e=>setLocal({...local, source:e.target.value})} className="w-full p-2 rounded bg-[#0b1221] mb-2" required />
+                  <label className="text-xs text-gray-300">Monto</label>
+                  <input type="number" value={local.amount} onChange={e=>setLocal({...local, amount: parseFloat(e.target.value) || ''})} className="w-full p-2 rounded bg-[#0b1221] mb-2" required />
+                  <div className="flex gap-2">
+                    <select value={local.type} onChange={e=>setLocal({...local, type:e.target.value})} className="w-1/2 p-2 rounded bg-[#0b1221]">
+                      <option value="fijo">Fijo</option><option value="variable">Variable</option>
+                    </select>
+                    <select value={local.period} onChange={e=>setLocal({...local, period:parseInt(e.target.value)})} className="w-1/2 p-2 rounded bg-[#0b1221]">
+                      <option value={1}>1ª Quincena</option><option value={2}>2ª Quincena</option>
+                    </select>
+                  </div>
+                </>}
+
+                {(entity==='expense-fixed' || entity==='expense-unexpected') && <>
+                  <label className="text-xs text-gray-300">Nombre</label>
+                  <input value={local.name} onChange={e=>setLocal({...local, name:e.target.value})} className="w-full p-2 rounded bg-[#0b1221] mb-2" required />
+                  <label className="text-xs text-gray-300">Monto</label>
+                  <input type="number" value={local.amount} onChange={e=>setLocal({...local, amount: parseFloat(e.target.value)||''})} className="w-full p-2 rounded bg-[#0b1221] mb-2" required />
+                  <label className="text-xs text-gray-300">Categoría</label>
+                  <input value={local.category} onChange={e=>setLocal({...local, category:e.target.value})} className="w-full p-2 rounded bg-[#0b1221] mb-2" required />
+                  <select value={local.period} onChange={e=>setLocal({...local, period:parseInt(e.target.value)})} className="w-full p-2 rounded bg-[#0b1221]">
+                    <option value={1}>1ª Quincena</option><option value={2}>2ª Quincena</option>
+                  </select>
+                </>}
+
+                {entity==='debt' && <>
+                  <label className="text-xs text-gray-300">Entidad / Deudor</label>
+                  <input value={local.debtor} onChange={e=>setLocal({...local, debtor:e.target.value})} className="w-full p-2 rounded bg-[#0b1221] mb-2" required />
+                  <label className="text-xs text-gray-300">Monto total</label>
+                  <input type="number" value={local.montoTotal} onChange={e=>setLocal({...local, montoTotal: parseFloat(e.target.value)||''})} className="w-full p-2 rounded bg-[#0b1221] mb-2" required />
+                  <label className="text-xs text-gray-300">Vencimiento</label>
+                  <input type="date" value={local.dueDate} onChange={e=>setLocal({...local, dueDate:e.target.value})} className="w-full p-2 rounded bg-[#0b1221] mb-2" />
+                  <label className="text-xs text-gray-300">Tipo</label>
+                  <select value={local.type} onChange={e=>setLocal({...local, type:e.target.value})} className="w-full p-2 rounded bg-[#0b1221] mb-2">
+                    <option value="personal">Personal / A cobrar</option>
+                    <option value="banco">Banco / Crédito</option>
+                    <option value="tarjeta">Tarjeta de crédito</option>
+                  </select>
+                  <label className="text-xs text-gray-300">Tasa anual (%) (opcional)</label>
+                  <input type="number" value={local.tasaAnual} onChange={e=>setLocal({...local, tasaAnual: e.target.value})} className="w-full p-2 rounded bg-[#0b1221] mb-2" placeholder="Ej: 24" />
+                  <label className="text-xs text-gray-300">Tasa mensual (%) (opcional - sobrescribe anual)</label>
+                  <input type="number" value={local.tasaMensual} onChange={e=>setLocal({...local, tasaMensual: e.target.value})} className="w-full p-2 rounded bg-[#0b1221] mb-2" placeholder="Ej: 2" />
+                  <label className="text-xs text-gray-300">Número de cuotas (opcional)</label>
+                  <input type="number" value={local.cuotas} onChange={e=>setLocal({...local, cuotas: e.target.value})} className="w-full p-2 rounded bg-[#0b1221] mb-2" placeholder="Ej: 12" />
+
+                  <select value={local.period} onChange={e=>setLocal({...local, period:parseInt(e.target.value)})} className="w-full p-2 rounded bg-[#0b1221]">
+                    <option value={1}>1ª Quincena</option><option value={2}>2ª Quincena</option>
+                  </select>
+                </>}
+
+                {entity==='saving' && <>
+                  <label className="text-xs text-gray-300">Mes</label>
+                  <select value={local.month} onChange={e=>setLocal({...local, month:parseInt(e.target.value)})} className="w-full p-2 rounded bg-[#0b1221] mb-2">
+                    {monthNames.map((m,i)=> <option key={i} value={i}>{m}</option>)}
+                  </select>
+                  <label className="text-xs text-gray-300">Año</label>
+                  <select value={local.year} onChange={e=>setLocal({...local, year:parseInt(e.target.value)})} className="w-full p-2 rounded bg-[#0b1221] mb-2">
+                    <option value={2024}>2024</option><option value={2025}>2025</option><option value={2026}>2026</option>
+                  </select>
+                  <label className="text-xs text-gray-300">Monto ahorrado</label>
+                  <input type="number" value={local.amount} onChange={e=>setLocal({...local, amount: parseFloat(e.target.value)||''})} className="w-full p-2 rounded bg-[#0b1221] mb-2" />
+                  <label className="text-xs text-gray-300">Nota</label>
+                  <input value={local.note} onChange={e=>setLocal({...local, note:e.target.value})} className="w-full p-2 rounded bg-[#0b1221] mb-2" />
+                </>}
+
+                <div className="flex gap-3 pt-4">
+                  <button type="submit" className="flex-1 bg-gradient-to-r from-[#7c3aed] to-[#5b21b6] py-2 rounded-lg">Guardar</button>
+                  <button type="button" onClick={onClose} className="flex-1 bg-[#111827] border border-[#2f2a3c] py-2 rounded-lg">Cancelar</button>
+                </div>
+              </form>
+            </div>
+          </div>
+        );
+      }
+
+      // Abono modal
+      function AbonoModal({ open, debt, onApply, onClose }){
+        const [amount, setAmount] = useState('');
+        const [preview, setPreview] = useState(null);
+        useEffect(()=>{ if (open) { setAmount(''); setPreview(null); renderDebtLineChart(debt); } }, [open, debt]);
+
+        useEffect(()=>{ if (debt && amount !== '') setPreview(computeAbonoPreview(debt, amount)); else setPreview(null); }, [amount, debt]);
+
+        if (!open || !debt) return null;
+        return (
+          <div className="fixed inset-0 z-50 flex items-start md:items-center justify-center bg-black/40 p-4 overflow-auto">
+            <div className="w-full max-w-md bg-gradient-to-br from-[#1f1230] to-[#2a143d] border border-[#2f1a3a] rounded-2xl p-6 glass text-gray-100 shadow-2xl">
+              <h3 className="text-lg font-semibold mb-2">Abonar a {debt.debtor}</h3>
+              <p className="text-sm text-gray-300 mb-3">Pendiente: {formatCurrency(debt.montoPendiente)}</p>
+
+              <label className="text-xs text-gray-300">Monto a abonar</label>
+              <input type="number" value={amount} onChange={e=>setAmount(e.target.value)} className="w-full p-2 rounded bg-[#0b1221] mb-3" placeholder="Ej: 200000" />
+
+              { preview && (
+                <div className="bg-white/5 p-3 rounded mb-3 text-sm">
+                  <div>Interés mes: <strong>{formatCurrency(preview.interes)}</strong></div>
+                  <div>Capital aplicado: <strong>{formatCurrency(preview.capital)}</strong></div>
+                  <div>Saldo después: <strong>{formatCurrency(preview.newSaldo)}</strong></div>
+                  { !preview.valid && <div className="text-red-300 mt-2">Atención: {preview.reason}</div> }
+                </div>
+              )}
+
+              <div className="flex gap-3">
+                <button onClick={()=>onApply(debt.id, amount)} className="flex-1 bg-gradient-to-r from-[#7c3aed] to-[#5b21b6] py-2 rounded-lg">Aplicar Abono</button>
+                <button onClick={onClose} className="flex-1 bg-[#111827] border border-[#2f2a3c] py-2 rounded-lg">Cancelar</button>
+              </div>
+
+              <div className="mt-4">
+                <h4 className="text-sm font-semibold mb-2">Historial reciente</h4>
+                <div className="max-h-40 overflow-auto text-sm">
+                  { (debt.history || []).slice().reverse().map(h => (
+                    <div key={h.id} className="border-b border-white/5 py-2">
+                      <div>{new Date(h.date).toLocaleString()} — {formatCurrency(h.amount)}</div>
+                      <div className="text-xs text-gray-400">Interés: {formatCurrency(h.interes)} · Capital: {formatCurrency(h.capital)} · Saldo después: {formatCurrency(h.after)}</div>
+                    </div>
+                  )) }
+                  { (!debt.history || debt.history.length===0) && <div className="text-gray-400">Sin movimientos</div> }
+                </div>
+
+                <div className="mt-3">
+                  <h4 className="text-sm font-semibold mb-2">Progreso</h4>
+                  <div className="w-full h-3 bg-white/10 rounded overflow-hidden">
+                    <div className={`${progressColor(debt)} h-full`} style={{ width: `${(debt.montoPendiente / Math.max(1, debt.montoTotal)) * 100}%` }}></div>
+                  </div>
+                  <div className="text-xs text-gray-400 mt-1">Pendiente: {formatCurrency(debt.montoPendiente)} / Total: {formatCurrency(debt.montoTotal)}</div>
+                </div>
+
+                <div className="mt-4">
+                  <h4 className="text-sm font-semibold mb-2">Gráfico de saldo</h4>
+                  <div className="h-40"><canvas ref={lineRef}></canvas></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      }
+
+      // Simulator modal
+      function SimulatorModal({ open, debt, onClose }){
+        const [monthly, setMonthly] = useState('');
+        const [result, setResult] = useState(null);
+        useEffect(()=>{ if (open) setMonthly(''); setResult(null); }, [open, debt]);
+
+        const runSim = () => {
+          const m = parseFloat(monthly);
+          if (!debt) return;
+          if (!m || m<=0) { alert('Ingresa un monto mensual válido'); return; }
+          const r = simulateDebt(debt, m);
+          setResult(r);
+          renderSimChart(r.timeline, debt.debtor);
+        };
+
+        if (!open || !debt) return null;
+        return (
+          <div className="fixed inset-0 z-50 flex items-start md:items-center justify-center bg-black/40 p-4 overflow-auto">
+            <div className="w-full max-w-2xl bg-gradient-to-br from-[#1f1230] to-[#2a143d] border border-[#2f1a3a] rounded-2xl p-6 glass text-gray-100 shadow-2xl">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-semibold">Simulador - {debt.debtor}</h3>
+                <button onClick={onClose} className="px-3 py-1 bg-[#111827] rounded">Cerrar</button>
+              </div>
+
+              <p className="text-sm text-gray-300 mt-2">Saldo pendiente: {formatCurrency(debt.montoPendiente)} · Tasa aprox. mensual: { debt.tasaMensual ? `${d.tasaMensual}%` : (debt.tasaAnual ? `${(debt.tasaAnual/12).toFixed(2)}%` : '0%') }</p>
+
+              <div className="mt-4 flex gap-2 items-center">
+                <input value={monthly} onChange={e=>setMonthly(e.target.value)} className="p-2 rounded bg-[#0b1221]" placeholder="Monto mensual a pagar" />
+                <button onClick={runSim} className="px-4 py-2 bg-gradient-to-r from-[#7c3aed] to-[#5b21b6] rounded-lg">Simular</button>
+              </div>
+
+              { result && (
+                <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="bg-white/5 p-3 rounded text-sm">
+                    <div>Meses estimados para pagar: <strong>{ result.months === Infinity ? 'No reduce (abono ≤ interés)' : result.months }</strong></div>
+                    <div>Total interés estimado: <strong>{ formatCurrency(result.totalInterest) }</strong></div>
+                  </div>
+                  <div className="bg-white/5 p-3 rounded text-sm">
+                    <div className="h-48"><canvas ref={simRef}></canvas></div>
+                  </div>
+                </div>
+              ) }
+            </div>
+          </div>
+        );
+      }
+
+      // ----------------- Render main -----------------
+      if (!started) return <Welcome />;
+
+      return (
+        <div className="max-w-7xl mx-auto">
+          <Header />
+
+          <main className="pb-12">
+            <div className="space-y-6">
+              { activeTab === 'dashboard' && <DashboardView /> }
+              { activeTab === 'incomes' && <>
+                <div className="mb-3"><TableControls /></div>
+                <IncomesView />
+              </> }
+              { activeTab === 'expenses' && <>
+                <div className="mb-3"><TableControls /></div>
+                <ExpensesView />
+              </> }
+              { activeTab === 'debts' && <>
+                <div className="mb-3"><TableControls /></div>
+                <DebtsView />
+              </> }
+              { activeTab === 'savings' && <>
+                <div className="mb-3"><TableControls /></div>
+                <SavingsView />
+              </> }
+              { activeTab === 'reports' && <ReportsView /> }
+            </div>
+          </main>
+
+          <ModalForm open={showModal} mode={modalMode} entity={modalEntity} item={editingItem} onSave={saveFromModal} onClose={()=>{ setShowModal(false); setEditingItem(null); }} />
+          <AbonoModal open={showAbonoModal} debt={abonoTarget} onApply={applyAbono} onClose={()=>{ setShowAbonoModal(false); setAbonoTarget(null); }} />
+          <SimulatorModal open={showSimulator} debt={simTarget} onClose={()=>{ setShowSimulator(false); setSimTarget(null); }} />
+        </div>
+      );
+    } // end App
+
+    // Render
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+</html>
