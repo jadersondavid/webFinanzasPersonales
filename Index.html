@@ -1,16 +1,19 @@
+
 <!DOCTYPE html>
 <html lang="es">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="description" content="Aplicación de gestión financiera personal para Jaderson y Valentina - Ingresos, gastos, deudas y ahorros" />
+  <meta name="robots" content="index, follow" />
   <title>Finanzas Jaderson y Valentina — Avanzado</title>
 
   <!-- Tailwind CSS -->
   <script src="https://cdn.tailwindcss.com"></script>
 
   <!-- React / ReactDOM -->
-  <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
-  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 
   <!-- Babel -->
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -60,17 +63,36 @@
       REMINDER_SETTINGS:'fin_reminder_settings_v3'
     };
 
+    // ----------------- localStorage helper with error handling -----------------
+    const safeLocalStorage = {
+      getItem: (key) => {
+        try {
+          return localStorage.getItem(key);
+        } catch (e) {
+          console.warn('localStorage not available:', e);
+          return null;
+        }
+      },
+      setItem: (key, value) => {
+        try {
+          localStorage.setItem(key, value);
+        } catch (e) {
+          console.warn('localStorage write failed:', e);
+        }
+      }
+    };
+
     // ----------------- App -----------------
     function App(){
       const monthNames = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
 
       // start
       const [started, setStarted] = useState(()=> {
-        try { return JSON.parse(localStorage.getItem(K.STARTED)) || false; } catch { return false; }
+        try { return JSON.parse(safeLocalStorage.getItem(K.STARTED)) || false; } catch { return false; }
       });
 
       // profile
-      const [profileImage, setProfileImage] = useState(()=> localStorage.getItem(K.PROFILE) || null);
+      const [profileImage, setProfileImage] = useState(()=> safeLocalStorage.getItem(K.PROFILE) || null);
 
       // period
       const [currentMonth, setCurrentMonth] = useState(new Date().getMonth());
@@ -79,25 +101,25 @@
 
       // data (with sensible defaults)
       const [myIncomes, setMyIncomes] = useState(()=> {
-        try { const v = JSON.parse(localStorage.getItem(K.MY_INCOMES)); if (Array.isArray(v)) return v; } catch {}
+        try { const v = JSON.parse(safeLocalStorage.getItem(K.MY_INCOMES)); if (Array.isArray(v)) return v; } catch {}
         return [{ id:uid(), source:'Salario Jaderson', amount:1200000, period:1, type:'fijo', isActive:true }];
       });
       const [valIncomes, setValIncomes] = useState(()=> {
-        try { const v = JSON.parse(localStorage.getItem(K.VAL_INCOMES)); if (Array.isArray(v)) return v; } catch {}
+        try { const v = JSON.parse(safeLocalStorage.getItem(K.VAL_INCOMES)); if (Array.isArray(v)) return v; } catch {}
         return [{ id:uid(), source:'Salario Valentina', amount:600000, period:1, type:'fijo', isActive:true }];
       });
       const [fixedExpenses, setFixedExpenses] = useState(()=> {
-        try { const v = JSON.parse(localStorage.getItem(K.FIXED_EXP)); if (Array.isArray(v)) return v; } catch {}
+        try { const v = JSON.parse(safeLocalStorage.getItem(K.FIXED_EXP)); if (Array.isArray(v)) return v; } catch {}
         return [{ id:uid(), name:'Arriendo', amount:800000, period:1, category:'Vivienda' }];
       });
       const [unexpectedExpenses, setUnexpectedExpenses] = useState(()=> {
-        try { const v = JSON.parse(localStorage.getItem(K.UNEXP_EXP)); if (Array.isArray(v)) return v; } catch {}
+        try { const v = JSON.parse(safeLocalStorage.getItem(K.UNEXP_EXP)); if (Array.isArray(v)) return v; } catch {}
         return [{ id:uid(), name:'Reparación lavadora', amount:150000, period:1, month:currentMonth, year:currentYear, category:'Emergencia' }];
       });
 
       // debts: includes tipo (personal,banco,tarjeta), tasaAnual, tasaMensual, cuotas (numero total), cuotasPagadas
       const [debts, setDebts] = useState(()=> {
-        try { const v = JSON.parse(localStorage.getItem(K.DEBTS)); if (Array.isArray(v)) return v; } catch {}
+        try { const v = JSON.parse(safeLocalStorage.getItem(K.DEBTS)); if (Array.isArray(v)) return v; } catch {}
         return [
           { id:uid(), debtor:'María García', type:'personal', montoTotal:500000, montoPendiente:500000, period:1, month:currentMonth, year:currentYear, dueDate:'2025-08-15', tasaAnual:null, tasaMensual:null, cuotas:null, cuotasPagadas:0, paid:false, history:[] },
           { id:uid(), debtor:'Crédito Bancario', type:'banco', montoTotal:3000000, montoPendiente:3000000, period:1, month:currentMonth, year:currentYear, dueDate:'2026-01-01', tasaAnual:24, tasaMensual:null, cuotas:24, cuotasPagadas:0, paid:false, history:[] },
@@ -106,19 +128,19 @@
       });
 
       const [abonosLog, setAbonosLog] = useState(()=> {
-        try { const v = JSON.parse(localStorage.getItem(K.ABONOS)); if (Array.isArray(v)) return v; } catch {}
+        try { const v = JSON.parse(safeLocalStorage.getItem(K.ABONOS)); if (Array.isArray(v)) return v; } catch {}
         return [];
       });
 
       // savings: monthly records { id, month, year, amount, note }
       const [savings, setSavings] = useState(()=> {
-        try { const v = JSON.parse(localStorage.getItem(K.SAVINGS)); if (Array.isArray(v)) return v; } catch {}
+        try { const v = JSON.parse(safeLocalStorage.getItem(K.SAVINGS)); if (Array.isArray(v)) return v; } catch {}
         return [{ id:uid(), month:currentMonth, year:currentYear, amount:100000, note:'Ahorro mensual' }];
       });
 
       // reminder settings
       const [reminderSettings, setReminderSettings] = useState(()=> {
-        try { const v = JSON.parse(localStorage.getItem(K.REMINDER_SETTINGS)); if (v) return v; } catch {}
+        try { const v = JSON.parse(safeLocalStorage.getItem(K.REMINDER_SETTINGS)); if (v) return v; } catch {}
         return { daysBefore:2, enabled:true };
       });
 
@@ -147,16 +169,16 @@
       const doughChart = useRef(null), barChart = useRef(null), lineChart = useRef(null), simChart = useRef(null);
 
       // persist to localStorage when changes
-      useEffect(()=> localStorage.setItem(K.MY_INCOMES, JSON.stringify(myIncomes)), [myIncomes]);
-      useEffect(()=> localStorage.setItem(K.VAL_INCOMES, JSON.stringify(valIncomes)), [valIncomes]);
-      useEffect(()=> localStorage.setItem(K.FIXED_EXP, JSON.stringify(fixedExpenses)), [fixedExpenses]);
-      useEffect(()=> localStorage.setItem(K.UNEXP_EXP, JSON.stringify(unexpectedExpenses)), [unexpectedExpenses]);
-      useEffect(()=> localStorage.setItem(K.DEBTS, JSON.stringify(debts)), [debts]);
-      useEffect(()=> localStorage.setItem(K.ABONOS, JSON.stringify(abonosLog)), [abonosLog]);
-      useEffect(()=> localStorage.setItem(K.SAVINGS, JSON.stringify(savings)), [savings]);
-      useEffect(()=> localStorage.setItem(K.PROFILE, profileImage || ''), [profileImage]);
-      useEffect(()=> localStorage.setItem(K.STARTED, JSON.stringify(started)), [started]);
-      useEffect(()=> localStorage.setItem(K.REMINDER_SETTINGS, JSON.stringify(reminderSettings)), [reminderSettings]);
+      useEffect(()=> safeLocalStorage.setItem(K.MY_INCOMES, JSON.stringify(myIncomes)), [myIncomes]);
+      useEffect(()=> safeLocalStorage.setItem(K.VAL_INCOMES, JSON.stringify(valIncomes)), [valIncomes]);
+      useEffect(()=> safeLocalStorage.setItem(K.FIXED_EXP, JSON.stringify(fixedExpenses)), [fixedExpenses]);
+      useEffect(()=> safeLocalStorage.setItem(K.UNEXP_EXP, JSON.stringify(unexpectedExpenses)), [unexpectedExpenses]);
+      useEffect(()=> safeLocalStorage.setItem(K.DEBTS, JSON.stringify(debts)), [debts]);
+      useEffect(()=> safeLocalStorage.setItem(K.ABONOS, JSON.stringify(abonosLog)), [abonosLog]);
+      useEffect(()=> safeLocalStorage.setItem(K.SAVINGS, JSON.stringify(savings)), [savings]);
+      useEffect(()=> safeLocalStorage.setItem(K.PROFILE, profileImage || ''), [profileImage]);
+      useEffect(()=> safeLocalStorage.setItem(K.STARTED, JSON.stringify(started)), [started]);
+      useEffect(()=> safeLocalStorage.setItem(K.REMINDER_SETTINGS, JSON.stringify(reminderSettings)), [reminderSettings]);
 
       // summary calculations
       const calculateSummary = () => {
@@ -180,31 +202,35 @@
         // dough
         try {
           if (doughChart.current) doughChart.current.destroy();
-          const ctx = doughRef.current.getContext('2d');
-          doughChart.current = new Chart(ctx, {
-            type:'doughnut',
-            data:{ labels:['Gastos Fijos','Imprevistos','Ahorro'], datasets:[{ data:[summary.totalFixed||0, summary.totalUnexp||0, summary.totalSavings||0], backgroundColor:['rgba(139,92,246,0.95)','rgba(59,130,246,0.9)','rgba(16,185,129,0.85)'] }]},
-            options:{ maintainAspectRatio:false, plugins:{ legend:{ labels:{ color:'#e6e6fa' } } } }
-          });
-        } catch(e){ console.warn(e); }
+          if (doughRef.current) {
+            const ctx = doughRef.current.getContext('2d');
+            doughChart.current = new Chart(ctx, {
+              type:'doughnut',
+              data:{ labels:['Gastos Fijos','Imprevistos','Ahorro'], datasets:[{ data:[summary.totalFixed||0, summary.totalUnexp||0, summary.totalSavings||0], backgroundColor:['rgba(139,92,246,0.95)','rgba(59,130,246,0.9)','rgba(16,185,129,0.85)'] }]},
+              options:{ maintainAspectRatio:false, responsive:true, plugins:{ legend:{ labels:{ color:'#e6e6fa' } } } }
+            });
+          }
+        } catch(e){ console.warn('Doughnut chart error:', e); }
         // bar incomes vs gastos
         try {
           if (barChart.current) barChart.current.destroy();
-          const ctx2 = barRef.current.getContext('2d');
-          const incomeQ1 = myIncomes.filter(i=>i.period===1 && i.isActive).reduce((s,i)=>s+i.amount,0) + valIncomes.filter(i=>i.period===1 && i.isActive).reduce((s,i)=>s+i.amount,0);
-          const incomeQ2 = myIncomes.filter(i=>i.period===2 && i.isActive).reduce((s,i)=>s+i.amount,0) + valIncomes.filter(i=>i.period===2 && i.isActive).reduce((s,i)=>s+i.amount,0);
-          const expenseQ1 = fixedExpenses.filter(e=>e.period===1).reduce((s,e)=>s+e.amount,0) + unexpectedExpenses.filter(e=>e.period===1).reduce((s,e)=>s+e.amount,0);
-          const expenseQ2 = fixedExpenses.filter(e=>e.period===2).reduce((s,e)=>s+e.amount,0) + unexpectedExpenses.filter(e=>e.period===2).reduce((s,e)=>s+e.amount,0);
-          barChart.current = new Chart(ctx2, {
-            type:'bar',
-            data:{ labels:['1ª Quincena','2ª Quincena'], datasets:[
-              { label:'Ingresos', data:[incomeQ1,incomeQ2], backgroundColor:'rgba(59,130,246,0.95)' },
-              { label:'Gastos', data:[expenseQ1,expenseQ2], backgroundColor:'rgba(237,137,54,0.95)' },
-              { label:'Ahorro', data:[summary.totalSavings||0,0], backgroundColor:'rgba(16,185,129,0.85)' }
-            ]},
-            options:{ maintainAspectRatio:false, plugins:{ legend:{ labels:{ color:'#e6e6fa' } } }, scales:{ x:{ ticks:{ color:'#e6e6fa' } }, y:{ ticks:{ color:'#e6e6fa' } } } }
-          });
-        } catch(e){ console.warn(e); }
+          if (barRef.current) {
+            const ctx2 = barRef.current.getContext('2d');
+            const incomeQ1 = myIncomes.filter(i=>i.period===1 && i.isActive).reduce((s,i)=>s+i.amount,0) + valIncomes.filter(i=>i.period===1 && i.isActive).reduce((s,i)=>s+i.amount,0);
+            const incomeQ2 = myIncomes.filter(i=>i.period===2 && i.isActive).reduce((s,i)=>s+i.amount,0) + valIncomes.filter(i=>i.period===2 && i.isActive).reduce((s,i)=>s+i.amount,0);
+            const expenseQ1 = fixedExpenses.filter(e=>e.period===1).reduce((s,e)=>s+e.amount,0) + unexpectedExpenses.filter(e=>e.period===1).reduce((s,e)=>s+e.amount,0);
+            const expenseQ2 = fixedExpenses.filter(e=>e.period===2).reduce((s,e)=>s+e.amount,0) + unexpectedExpenses.filter(e=>e.period===2).reduce((s,e)=>s+e.amount,0);
+            barChart.current = new Chart(ctx2, {
+              type:'bar',
+              data:{ labels:['1ª Quincena','2ª Quincena'], datasets:[
+                { label:'Ingresos', data:[incomeQ1,incomeQ2], backgroundColor:'rgba(59,130,246,0.95)' },
+                { label:'Gastos', data:[expenseQ1,expenseQ2], backgroundColor:'rgba(237,137,54,0.95)' },
+                { label:'Ahorro', data:[summary.totalSavings||0,0], backgroundColor:'rgba(16,185,129,0.85)' }
+              ]},
+              options:{ maintainAspectRatio:false, responsive:true, plugins:{ legend:{ labels:{ color:'#e6e6fa' } } }, scales:{ x:{ ticks:{ color:'#e6e6fa' } }, y:{ ticks:{ color:'#e6e6fa' } } } }
+            });
+          }
+        } catch(e){ console.warn('Bar chart error:', e); }
       }, [summary, myIncomes, valIncomes, fixedExpenses, unexpectedExpenses, savings, currentPeriod, currentMonth, currentYear, debts, abonosLog]);
 
       // ----------------- Utilities: search/filter/pagination -----------------
@@ -334,24 +360,30 @@
 
       // schedule reminders for pending debts with dueDate
       const scheduleAllReminders = async () => {
-        if (!reminderSettings.enabled) return;
-        const have = await askNotificationPermission();
-        if (!have) return;
-        // Clear existing timeouts? We'll keep simple: check every minute and notify when within threshold and not yet notified in this session
-        // Implement "notifiedThisSession" map
-        window._notifiedMap = window._notifiedMap || {};
-        debts.forEach(d => {
-          if (!d.dueDate) return;
-          const due = new Date(d.dueDate);
-          const notifyBeforeDays = reminderSettings.daysBefore || 2;
-          const notifyAt = new Date(due.getFullYear(), due.getMonth(), due.getDate() - notifyBeforeDays, 9, 0, 0); // 9:00am day -daysBefore
-          const key = d.id + '_' + notifyAt.toDateString();
-          if (new Date() >= notifyAt && !window._notifiedMap[key]) {
-            // show notification
-            new Notification(`Vencimiento: ${d.debtor}`, { body:`La deuda vence el ${due.toLocaleDateString()}. Verifica el pago.`, icon: '' });
-            window._notifiedMap[key] = true;
-          }
-        });
+        try {
+          if (!reminderSettings.enabled) return;
+          const have = await askNotificationPermission();
+          if (!have) return;
+          // Clear existing timeouts? We'll keep simple: check every minute and notify when within threshold and not yet notified in this session
+          // Implement "notifiedThisSession" map
+          window._notifiedMap = window._notifiedMap || {};
+          debts.forEach(d => {
+            if (!d.dueDate) return;
+            const due = new Date(d.dueDate);
+            const notifyBeforeDays = reminderSettings.daysBefore || 2;
+            const notifyAt = new Date(due.getFullYear(), due.getMonth(), due.getDate() - notifyBeforeDays, 9, 0, 0); // 9:00am day -daysBefore
+            const key = d.id + '_' + notifyAt.toDateString();
+            if (new Date() >= notifyAt && !window._notifiedMap[key]) {
+              // show notification
+              if ('Notification' in window && Notification.permission === 'granted') {
+                new Notification(`Vencimiento: ${d.debtor}`, { body:`La deuda vence el ${due.toLocaleDateString()}. Verifica el pago.`, icon: '' });
+              }
+              window._notifiedMap[key] = true;
+            }
+          });
+        } catch(e) {
+          console.warn('Reminder scheduling error:', e);
+        }
       };
 
       // check reminders every 60 seconds (while app open)
@@ -432,7 +464,7 @@
       // ----------------- Line chart for debt history rendered in abono modal -----------------
       const renderDebtLineChart = (debt) => {
         try {
-          if (!debt) return;
+          if (!debt || !lineRef.current) return;
           const ctx = lineRef.current.getContext('2d');
           if (lineChart.current) lineChart.current.destroy();
           const history = (debt.history || []).slice().sort((a,b)=> new Date(a.date) - new Date(b.date));
@@ -443,8 +475,8 @@
             labels.push(`${d.getDate()}/${d.getMonth()+1}/${d.getFullYear()}`);
             data.push(h.after);
           });
-          lineChart.current = new Chart(ctx, { type:'line', data:{ labels, datasets:[{ label:`Saldo ${debt.debtor}`, data, borderColor:'rgba(139,92,246,0.95)', backgroundColor:'rgba(139,92,246,0.15)', tension:0.3 }]}, options:{ maintainAspectRatio:false, plugins:{ legend:{ labels:{ color:'#e6e6fa' } } }, scales:{ x:{ ticks:{ color:'#e6e6fa' } }, y:{ ticks:{ color:'#e6e6fa' } } } } });
-        } catch(e){ console.warn('line chart', e); }
+          lineChart.current = new Chart(ctx, { type:'line', data:{ labels, datasets:[{ label:`Saldo ${debt.debtor}`, data, borderColor:'rgba(139,92,246,0.95)', backgroundColor:'rgba(139,92,246,0.15)', tension:0.3 }]}, options:{ maintainAspectRatio:false, responsive:true, plugins:{ legend:{ labels:{ color:'#e6e6fa' } } }, scales:{ x:{ ticks:{ color:'#e6e6fa' } }, y:{ ticks:{ color:'#e6e6fa' } } } } });
+        } catch(e){ console.warn('Line chart error:', e); }
       };
 
       useEffect(()=>{ if (abonoTarget) renderDebtLineChart(abonoTarget); }, [abonoTarget, debts]);
@@ -453,24 +485,31 @@
       const renderSimChart = (timeline, debtorName) => {
         try {
           if (simChart.current) simChart.current.destroy();
-          const ctx = simRef.current.getContext('2d');
-          const labels = timeline.map(t=>`M${t.month}`);
-          const data = timeline.map(t => t.after);
-          simChart.current = new Chart(ctx, { type:'line', data:{ labels, datasets:[
-            { label:`Proyección saldo ${debtorName}`, data, borderColor:'rgba(59,130,246,0.95)', backgroundColor:'rgba(59,130,246,0.12)', tension:0.3 }
-          ]}, options:{ maintainAspectRatio:false, plugins:{ legend:{ labels:{ color:'#e6e6fa' } } }, scales:{ x:{ ticks:{ color:'#e6e6fa' } }, y:{ ticks:{ color:'#e6e6fa' } } } } });
-        } catch(e){ console.warn('sim chart', e); }
+          if (simRef.current) {
+            const ctx = simRef.current.getContext('2d');
+            const labels = timeline.map(t=>`M${t.month}`);
+            const data = timeline.map(t => t.after);
+            simChart.current = new Chart(ctx, { type:'line', data:{ labels, datasets:[
+              { label:`Proyección saldo ${debtorName}`, data, borderColor:'rgba(59,130,246,0.95)', backgroundColor:'rgba(59,130,246,0.12)', tension:0.3 }
+            ]}, options:{ maintainAspectRatio:false, responsive:true, plugins:{ legend:{ labels:{ color:'#e6e6fa' } } }, scales:{ x:{ ticks:{ color:'#e6e6fa' } }, y:{ ticks:{ color:'#e6e6fa' } } } } });
+          }
+        } catch(e){ console.warn('Simulator chart error:', e); }
       };
 
       // ----------------- Notifications quick helper -----------------
       const notify = async (title, body) => {
-        if (!('Notification' in window)) { alert(title + '\n' + body); return; }
-        if (Notification.permission === 'granted') new Notification(title, { body });
-        else if (Notification.permission !== 'denied') {
-          const perm = await Notification.requestPermission();
-          if (perm === 'granted') new Notification(title, { body });
-          else alert(title + '\n' + body);
-        } else alert(title + '\n' + body);
+        try {
+          if (!('Notification' in window)) { alert(title + '\n' + body); return; }
+          if (Notification.permission === 'granted') new Notification(title, { body });
+          else if (Notification.permission !== 'denied') {
+            const perm = await Notification.requestPermission();
+            if (perm === 'granted') new Notification(title, { body });
+            else alert(title + '\n' + body);
+          } else alert(title + '\n' + body);
+        } catch(e) {
+          console.warn('Notification error:', e);
+          alert(title + '\n' + body);
+        }
       };
 
       // ----------------- UI Components -----------------
@@ -1008,7 +1047,7 @@
                 <button onClick={onClose} className="px-3 py-1 bg-[#111827] rounded">Cerrar</button>
               </div>
 
-              <p className="text-sm text-gray-300 mt-2">Saldo pendiente: {formatCurrency(debt.montoPendiente)} · Tasa aprox. mensual: { debt.tasaMensual ? `${d.tasaMensual}%` : (debt.tasaAnual ? `${(debt.tasaAnual/12).toFixed(2)}%` : '0%') }</p>
+              <p className="text-sm text-gray-300 mt-2">Saldo pendiente: {formatCurrency(debt.montoPendiente)} · Tasa aprox. mensual: { debt.tasaMensual ? `${debt.tasaMensual}%` : (debt.tasaAnual ? `${(debt.tasaAnual/12).toFixed(2)}%` : '0%') }</p>
 
               <div className="mt-4 flex gap-2 items-center">
                 <input value={monthly} onChange={e=>setMonthly(e.target.value)} className="p-2 rounded bg-[#0b1221]" placeholder="Monto mensual a pagar" />
